@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "ms-vscode.vscode-typescript-next",
+    "vscjava.vscode-java-pack",
+    "fwcd.kotlin",
+    "redhat.vscode-xml",
+    "ms-vscode.powershell"
+  ]
+}

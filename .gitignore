@@ -1,0 +1,38 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Android / Gradle
+.gradle/
+.kotlin/
+build/
+android/.gradle/
+android/.kotlin/
+android/.tools/
+android/build/
+android/app/build/
+android/local.properties
+
+# Server generated files
+server/dist/
+server/logs/
+server/.tmp-logs/
+server/config/admin-auth.json
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Local screenshots and captures
+Screenshot_*.jpg
+Screenshot_*.png
+화면 캡처 *.jpg
+화면 캡처 *.png

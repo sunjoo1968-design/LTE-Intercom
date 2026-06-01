@@ -1,0 +1,87 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Server: Test",
+      "type": "shell",
+      "command": "npm test",
+      "options": {
+        "cwd": "${workspaceFolder}/server"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Server: Start",
+      "type": "shell",
+      "command": "npm start",
+      "options": {
+        "cwd": "${workspaceFolder}/server"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "server",
+        "pattern": {
+          "regexp": "."
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*npm start.*",
+          "endsPattern": ".*LTE Intercom server listening.*"
+        }
+      }
+    },
+    {
+      "label": "Server: Health Check",
+      "type": "shell",
+      "command": "curl.exe -s http://localhost:8443/health",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Server: WebSocket Smoke",
+      "type": "shell",
+      "command": "npm run smoke:ws",
+      "options": {
+        "cwd": "${workspaceFolder}/server"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Android: Assemble Debug",
+      "type": "shell",
+      "command": ".\\gradlew.bat :app:assembleDebug",
+      "options": {
+        "cwd": "${workspaceFolder}/android",
+        "env": {
+          "JAVA_HOME": "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.19.10-hotspot",
+          "ANDROID_HOME": "C:\\Users\\lumos\\AppData\\Local\\Android\\Sdk",
+          "ANDROID_SDK_ROOT": "C:\\Users\\lumos\\AppData\\Local\\Android\\Sdk",
+          "PATH": "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.19.10-hotspot\\bin;C:\\Users\\lumos\\AppData\\Local\\Android\\Sdk\\platform-tools;${env:PATH}"
+        }
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Android: Install Debug",
+      "type": "shell",
+      "command": "& 'C:\\Users\\lumos\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe' install -r .\\app\\build\\outputs\\apk\\debug\\app-debug.apk",
+      "options": {
+        "cwd": "${workspaceFolder}/android"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Android: Open Logcat",
+      "type": "shell",
+      "command": "& 'C:\\Users\\lumos\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe' logcat | Select-String -Pattern 'LTEIntercom|AndroidRuntime|WebRTC|AudioManager'",
+      "options": {
+        "cwd": "${workspaceFolder}/android"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

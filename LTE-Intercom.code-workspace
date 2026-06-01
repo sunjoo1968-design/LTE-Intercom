@@ -1,0 +1,30 @@
+{
+  "folders": [
+    {
+      "name": "LTE-Intercom",
+      "path": "."
+    },
+    {
+      "name": "Server",
+      "path": "server"
+    },
+    {
+      "name": "Android",
+      "path": "android"
+    }
+  ],
+  "settings": {
+    "files.encoding": "utf8",
+    "editor.formatOnSave": true,
+    "terminal.integrated.defaultProfile.windows": "PowerShell"
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-vscode.vscode-typescript-next",
+      "vscjava.vscode-java-pack",
+      "fwcd.kotlin",
+      "redhat.vscode-xml",
+      "ms-vscode.powershell"
+    ]
+  }
+}
