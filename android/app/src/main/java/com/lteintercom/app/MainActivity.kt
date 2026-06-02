@@ -89,7 +89,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
         window.setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         signalingClient = IntercomSignalingClient(this)
-        talkBeepPlayer = TalkBeepPlayer()
+        talkBeepPlayer = TalkBeepPlayer(applicationContext)
         panelView = createPanelView()
         audioPlaybackEngine = AudioPlaybackEngine(
             context = applicationContext,
