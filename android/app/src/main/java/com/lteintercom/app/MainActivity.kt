@@ -76,6 +76,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     private var lastRoomPassword = ""
     private var lastDisplayName = "Your Name"
     private val availableRooms = mutableListOf<RoomOption>()
+    private val participantNames = mutableMapOf<String, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,7 +90,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
         window.setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         signalingClient = IntercomSignalingClient(this)
-        talkBeepPlayer = TalkBeepPlayer(applicationContext)
+        talkBeepPlayer = TalkBeepPlayer()
         panelView = createPanelView()
         audioPlaybackEngine = AudioPlaybackEngine(
             context = applicationContext,
@@ -206,10 +207,14 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
                 "call.signal" -> {
                     val fromParticipantId = message.optString("fromParticipantId")
                     if (fromParticipantId.isNotBlank() && fromParticipantId != localParticipantId) {
+                        val fromName = participantNames[fromParticipantId] ?: "REMOTE"
                         panelView.setIncomingCall(fromParticipantId)
                         playTalkBeep()
+                        updateStatus("CALL FROM $fromName")
+                        panelView.postDelayed({ panelView.clearCall(fromParticipantId) }, 5_000L)
+                    } else {
+                        updateStatus("CALL SIGNAL")
                     }
-                    updateStatus("CALL SIGNAL")
                 }
                 else -> updateStatus(type.uppercase())
             }
@@ -426,6 +431,13 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
             setMargins(0, 10, 0, 0)
         })
         card.addView(setupHintView)
+        card.addView(TextView(this).apply {
+            text = "made by SunjooAn"
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(105, 116, 126))
+            setPadding(0, 14, 0, 0)
+        })
         val scroll = ScrollView(this).apply {
             isFillViewport = false
             addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -682,6 +694,9 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
 
                 override fun onCall(channelId: String) {
                     signalingClient.sendCall(channelId)
+                    playTalkBeep()
+                    updateStatus("CALL SENT")
+                    panelView.postDelayed({ panelView.clearCall(channelId) }, 3_000L)
                 }
             }
         }
@@ -913,12 +928,16 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     private fun parseParticipants(room: JSONObject): List<IntercomPanelView.ParticipantCard> {
         val participants = room.optJSONArray("participants") ?: return emptyList()
         return buildList {
+            participantNames.clear()
             for (index in 0 until participants.length()) {
                 val item = participants.optJSONObject(index) ?: continue
+                val id = item.optString("id", "participant-$index")
+                val name = item.optString("displayName", "USER-${index + 1}")
+                participantNames[id] = name
                 add(
                     IntercomPanelView.ParticipantCard(
-                        id = item.optString("id", "participant-$index"),
-                        displayName = item.optString("displayName", "USER-${index + 1}"),
+                        id = id,
+                        displayName = name,
                         talking = item.optBoolean("talking", false),
                         listening = item.optBoolean("listening", true),
                         muted = item.optBoolean("muted", false),

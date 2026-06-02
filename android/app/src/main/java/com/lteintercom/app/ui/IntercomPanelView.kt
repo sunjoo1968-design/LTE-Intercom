@@ -463,7 +463,8 @@ class IntercomPanelView @JvmOverloads constructor(
     private fun drawFooter(canvas: Canvas, rect: RectF) {
         paint.color = Color.rgb(8, 10, 12)
         canvas.drawRect(rect, paint)
-        drawText(canvas, "PTT: hold to talk  |  double tap: latch on/off", rect.centerX(), rect.top + dp(25f), 13f, subText, Paint.Align.CENTER)
+        drawText(canvas, "PTT: hold to talk  |  double tap: latch on/off", rect.centerX(), rect.top + dp(17f), 12f, subText, Paint.Align.CENTER)
+        drawText(canvas, "made by SunjooAn", rect.centerX(), rect.top + dp(29f), 9f, Color.rgb(95, 105, 115), Paint.Align.CENTER)
     }
 
     private fun drawScrollIndicator(canvas: Canvas, track: RectF) {
@@ -633,6 +634,15 @@ class IntercomPanelView @JvmOverloads constructor(
         panelState = panelState.copy(
             channels = panelState.channels.map { channel ->
                 if (channel.id == participantId && channel.enabled) channel.copy(callState = CallState.Incoming(channel.label)) else channel
+            },
+        )
+        invalidate()
+    }
+
+    fun clearCall(participantId: String) {
+        panelState = panelState.copy(
+            channels = panelState.channels.map { channel ->
+                if (channel.id == participantId) channel.copy(callState = CallState.Idle) else channel
             },
         )
         invalidate()
