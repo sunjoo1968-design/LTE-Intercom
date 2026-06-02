@@ -68,6 +68,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     private var localParticipantId: String? = null
     private var exitConfirmed = false
     private var localTalkActive = false
+    private var localReceiveEnabled = true
     private var backgroundServiceStarted = false
     @Volatile private var roomLoadInProgress = false
     private var lastIpSegments = listOf("192", "168", "0", "241")
@@ -77,6 +78,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     private var lastDisplayName = "Your Name"
     private val availableRooms = mutableListOf<RoomOption>()
     private val participantNames = mutableMapOf<String, String>()
+    private val mutedRemoteParticipantIds = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -178,6 +180,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
             if (setupMode) return@runOnUiThread
             connected = false
             localParticipantId = null
+            mutedRemoteParticipantIds.clear()
+            localReceiveEnabled = true
             audioPlaybackEngine.stop()
             stopBackgroundService()
             panelView.setConnectionLabel(message)
@@ -208,10 +212,10 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
                     val fromParticipantId = message.optString("fromParticipantId")
                     if (fromParticipantId.isNotBlank() && fromParticipantId != localParticipantId) {
                         val fromName = participantNames[fromParticipantId] ?: "REMOTE"
-                        panelView.setIncomingCall(fromParticipantId)
+                        panelView.showCallAlert(fromParticipantId, fromName)
                         playTalkBeep()
                         updateStatus("CALL FROM $fromName")
-                        panelView.postDelayed({ panelView.clearCall(fromParticipantId) }, 5_000L)
+                        panelView.postDelayed({ panelView.clearCallAlert(fromParticipantId) }, 7_000L)
                     } else {
                         updateStatus("CALL SIGNAL")
                     }
@@ -222,6 +226,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     }
 
     override fun onAudioFrame(fromParticipantId: String, pcm16: ByteArray) {
+        if (!localReceiveEnabled) return
+        if (fromParticipantId in mutedRemoteParticipantIds) return
         audioPlaybackEngine.playPcm16(pcm16)
     }
 
@@ -236,6 +242,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
             if (setupMode) return@runOnUiThread
             connected = false
             localParticipantId = null
+            mutedRemoteParticipantIds.clear()
+            localReceiveEnabled = true
             audioPlaybackEngine.stop()
             stopBackgroundService()
             panelView.setConnectionLabel("ERROR")
@@ -689,7 +697,17 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
                 }
 
                 override fun onListen(channelId: String, active: Boolean) {
-                    signalingClient.sendListen(active)
+                    if (channelId == localParticipantId) {
+                        localReceiveEnabled = active
+                        signalingClient.sendListen(active)
+                    } else {
+                        if (active) {
+                            mutedRemoteParticipantIds -= channelId
+                        } else {
+                            mutedRemoteParticipantIds += channelId
+                        }
+                        updateStatus(if (active) "LISTEN ON" else "LISTEN OFF")
+                    }
                 }
 
                 override fun onCall(channelId: String) {
@@ -877,6 +895,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
         stopBackgroundService()
         connected = false
         localParticipantId = null
+        mutedRemoteParticipantIds.clear()
+        localReceiveEnabled = true
     }
 
     private fun updateStatus(value: String) {
@@ -929,22 +949,31 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
         val participants = room.optJSONArray("participants") ?: return emptyList()
         return buildList {
             participantNames.clear()
+            val activeIds = mutableSetOf<String>()
             for (index in 0 until participants.length()) {
                 val item = participants.optJSONObject(index) ?: continue
                 val id = item.optString("id", "participant-$index")
                 val name = item.optString("displayName", "USER-${index + 1}")
+                val isLocal = item.optString("id") == localParticipantId
+                val serverListening = item.optBoolean("listening", true)
+                activeIds += id
                 participantNames[id] = name
                 add(
                     IntercomPanelView.ParticipantCard(
                         id = id,
                         displayName = name,
                         talking = item.optBoolean("talking", false),
-                        listening = item.optBoolean("listening", true),
+                        listening = if (isLocal) {
+                            serverListening && localReceiveEnabled
+                        } else {
+                            serverListening && id !in mutedRemoteParticipantIds
+                        },
                         muted = item.optBoolean("muted", false),
-                        isLocal = item.optString("id") == localParticipantId,
+                        isLocal = isLocal,
                     ),
                 )
             }
+            mutedRemoteParticipantIds.retainAll(activeIds)
         }
     }
 

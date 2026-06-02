@@ -328,7 +328,10 @@ function createSignalingHub() {
     if (!roomPeers) return false;
     for (const peer of roomPeers) {
       if (peer.id === participantId) {
-        peer.close();
+        peer.send({ type: "admin.disconnect", reason: "admin_requested" });
+        roomPeers.delete(peer);
+        if (roomPeers.size === 0) peersByRoom.delete(roomCode);
+        setTimeout(() => peer.close(), 50).unref?.();
         return true;
       }
     }

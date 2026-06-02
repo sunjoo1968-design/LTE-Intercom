@@ -60,6 +60,7 @@ class IntercomPanelView @JvmOverloads constructor(
     private val localChannelIds = mutableSetOf<String>()
     private var attached = false
     private var frameScheduled = false
+    private var callAlert: CallAlert? = null
 
     private val bg = Color.rgb(10, 13, 16)
     private val panel = Color.rgb(23, 28, 33)
@@ -104,6 +105,7 @@ class IntercomPanelView @JvmOverloads constructor(
 
         if (compactMode) {
             drawCompactPanel(canvas, w, h, pad)
+            drawCallAlert(canvas, w, h, pad)
             scheduleNextFrame()
             return
         }
@@ -155,6 +157,7 @@ class IntercomPanelView @JvmOverloads constructor(
         }
 
         drawFooter(canvas, RectF(0f, h - footerHeight, w, h))
+        drawCallAlert(canvas, w, h, pad)
         scheduleNextFrame()
     }
 
@@ -467,6 +470,20 @@ class IntercomPanelView @JvmOverloads constructor(
         drawText(canvas, "made by SunjooAn", rect.centerX(), rect.top + dp(29f), 9f, Color.rgb(95, 105, 115), Paint.Align.CENTER)
     }
 
+    private fun drawCallAlert(canvas: Canvas, w: Float, h: Float, pad: Float) {
+        val alert = callAlert ?: return
+        val now = SystemClock.uptimeMillis()
+        val flashOn = (now / 360L) % 2L == 0L
+        val rect = RectF(pad, dp(14f), w - pad, dp(78f))
+        val bgColor = if (flashOn) amber else Color.rgb(178, 42, 38)
+        val fgColor = if (flashOn) Color.BLACK else Color.WHITE
+
+        fillRound(canvas, rect, dp(9f), bgColor)
+        strokeRound(canvas, rect, dp(9f), Color.WHITE, dp(1.4f))
+        drawText(canvas, "CALL FROM", rect.centerX(), rect.top + dp(24f), 12f, fgColor, Paint.Align.CENTER)
+        drawText(canvas, alert.displayName.uppercase(), rect.centerX(), rect.top + dp(51f), 25f, fgColor, Paint.Align.CENTER)
+    }
+
     private fun drawScrollIndicator(canvas: Canvas, track: RectF) {
         fillRound(canvas, track, dp(2f), Color.rgb(35, 40, 46))
         val ratio = height / (height + maxScrollY)
@@ -549,9 +566,10 @@ class IntercomPanelView @JvmOverloads constructor(
         if (!attached || frameScheduled) return
         frameScheduled = true
         val active = panelState.channels.any { channel ->
-            channel.talkState !is TalkState.Idle || channel.meter.peak > 0.2f
-        }
+            channel.talkState !is TalkState.Idle || channel.meter.peak > 0.2f || channel.callState !is CallState.Idle
+        } || callAlert != null
         val delay = when {
+            callAlert != null -> 180L
             active -> 350L
             compactMode -> 1_000L
             else -> 1_500L
@@ -639,6 +657,11 @@ class IntercomPanelView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun showCallAlert(participantId: String, displayName: String) {
+        callAlert = CallAlert(participantId = participantId, displayName = displayName.ifBlank { "REMOTE" })
+        setIncomingCall(participantId)
+    }
+
     fun clearCall(participantId: String) {
         panelState = panelState.copy(
             channels = panelState.channels.map { channel ->
@@ -646,6 +669,13 @@ class IntercomPanelView @JvmOverloads constructor(
             },
         )
         invalidate()
+    }
+
+    fun clearCallAlert(participantId: String) {
+        if (callAlert?.participantId == participantId) {
+            callAlert = null
+        }
+        clearCall(participantId)
     }
 
     private fun toggleListen(index: Int): Boolean {
@@ -763,6 +793,11 @@ class IntercomPanelView @JvmOverloads constructor(
         val type: HitType,
         val rect: RectF,
         val scrolls: Boolean = true,
+    )
+
+    private data class CallAlert(
+        val participantId: String,
+        val displayName: String,
     )
 
     private enum class HitType {

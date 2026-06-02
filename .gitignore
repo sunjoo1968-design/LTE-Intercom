@@ -19,6 +19,7 @@ server/logs/
 server/.tmp-logs/
 server/config/admin-auth.json
 release-artifacts/
+release/
 
 # IDE
 .idea/

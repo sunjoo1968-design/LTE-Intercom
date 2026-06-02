@@ -43,4 +43,7 @@ test("renders admin dashboard html", () => {
   assert.match(html, /ROOM DESCRIPTION/);
   assert.match(html, /ROOM PASSWORD/);
   assert.match(html, /CLEAR/);
+  assert.match(html, /made by SunjooAn/);
+  assert.match(html, /data-action="disconnect-participant"/);
+  assert.match(html, /Disconnecting /);
 });

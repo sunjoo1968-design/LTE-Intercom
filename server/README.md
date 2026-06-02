@@ -76,6 +76,7 @@ http://localhost:8443/admin
 ```
 
 The control UI can create rooms and disconnect a connected participant from the server.
+The v1.1 dashboard shows `made by SunjooAn` and uses a direct disconnect action with immediate UI feedback.
 It also has server controls for keep-running status, restart, and complete shutdown.
 Room creation can include a room password. Android clients must enter the same room password.
 Operation logs are written as JSON lines under `server/logs/`.

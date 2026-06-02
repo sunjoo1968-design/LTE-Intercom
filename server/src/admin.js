@@ -570,6 +570,13 @@ export function renderAdminPage() {
       font-size: 13px;
     }
 
+    .credit {
+      padding: 2px 4px 0;
+      color: #65717e;
+      font-size: 11px;
+      text-align: center;
+    }
+
     body.expand-users .grid {
       grid-template-columns: 1fr;
     }
@@ -707,6 +714,7 @@ export function renderAdminPage() {
           </div>
         </div>
       </section>
+      <div class="credit">made by SunjooAn</div>
     </main>
   </div>
 
@@ -788,7 +796,7 @@ export function renderAdminPage() {
           '<span>JOIN <strong>' + escapeHtml(formatTime(participant.joinedAt)) + '</strong></span>' +
         '</div>' +
         '<div class="participant-actions">' +
-          '<button type="button" class="small danger" onclick="disconnectParticipant(' + jsString(roomCode) + ', ' + jsString(participant.id) + ', ' + jsString(participant.displayName) + ')">DISCONNECT</button>' +
+          '<button type="button" class="small danger" data-action="disconnect-participant" data-room="' + escapeHtml(roomCode) + '" data-participant="' + escapeHtml(participant.id) + '" data-name="' + escapeHtml(participant.displayName || 'UNKNOWN') + '">DISCONNECT</button>' +
         '</div>' +
       '</div>';
     }
@@ -914,15 +922,23 @@ export function renderAdminPage() {
       input.type = input.type === 'password' ? 'text' : 'password';
     }
 
-    async function disconnectParticipant(roomCode, participantId, displayName) {
-      if (!confirm('Disconnect ' + displayName + ' from ' + roomCode + '?')) return;
+    async function disconnectParticipant(roomCode, participantId, displayName, button) {
       try {
+        if (button) {
+          button.disabled = true;
+          button.textContent = 'DISCONNECTING';
+        }
+        $('controlStatus').textContent = 'Disconnecting ' + displayName + ' from ' + roomCode + '...';
         await postJson('/admin/rooms/' + encodeURIComponent(roomCode) + '/participants/' + encodeURIComponent(participantId) + '/disconnect');
         $('controlStatus').textContent = 'Disconnected ' + displayName + '.';
         await refresh();
-        setTimeout(refresh, 800);
+        setTimeout(refresh, 400);
       } catch (error) {
         $('controlStatus').textContent = 'Disconnect failed: ' + error.message;
+        if (button) {
+          button.disabled = false;
+          button.textContent = 'DISCONNECT';
+        }
       }
     }
 
@@ -1065,6 +1081,15 @@ export function renderAdminPage() {
     $('rooms').addEventListener('click', async (event) => {
       const button = event.target.closest('button[data-action]');
       if (!button) return;
+      if (button.dataset.action === 'disconnect-participant') {
+        await disconnectParticipant(
+          button.dataset.room || '',
+          button.dataset.participant || '',
+          button.dataset.name || 'UNKNOWN',
+          button
+        );
+        return;
+      }
       if (button.dataset.action === 'edit-room') {
         startRoomEdit(button.dataset.code || '', button.dataset.description || '');
         return;

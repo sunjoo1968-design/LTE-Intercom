@@ -2,7 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $ServerDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $DistRoot = Join-Path $ServerDir "dist"
-$PortableDir = Join-Path $DistRoot "LTE-Intercom-Server-Portable"
+$PortableDirName = if ($env:PORTABLE_DIR_NAME) { $env:PORTABLE_DIR_NAME } else { "LTE-Intercom-Server-Portable" }
+$PortableDir = Join-Path $DistRoot $PortableDirName
 
 if (Test-Path $PortableDir) {
     Remove-Item -LiteralPath $PortableDir -Recurse -Force
