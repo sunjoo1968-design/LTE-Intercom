@@ -29,7 +29,8 @@ class IntercomSignalingClient(
         .pingInterval(15, TimeUnit.SECONDS)
         .build()
 
-    private var socket: WebSocket? = null
+    @Volatile private var socket: WebSocket? = null
+    @Volatile private var connectionId = 0
 
     fun connect(serverBaseUrl: String, roomCode: String, roomPassword: String, displayName: String) {
         disconnect()
@@ -37,14 +38,17 @@ class IntercomSignalingClient(
 
         val url = buildUrl(serverBaseUrl, roomCode, roomPassword, displayName)
         val request = Request.Builder().url(url).build()
+        val activeConnectionId = ++connectionId
         socket = client.newWebSocket(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (!isActive(activeConnectionId, webSocket)) return
                     listener.onConnected("CONNECTED")
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
+                    if (!isActive(activeConnectionId, webSocket)) return
                     val json = runCatching { JSONObject(text) }.getOrNull()
                     if (json == null) {
                         listener.onError("Invalid server message")
@@ -71,15 +75,18 @@ class IntercomSignalingClient(
                 }
 
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!isActive(activeConnectionId, webSocket)) return
                     webSocket.close(code, reason)
                     listener.onDisconnected("CLOSING $code")
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!isActive(activeConnectionId, webSocket)) return
                     listener.onDisconnected("DISCONNECTED")
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (!isActive(activeConnectionId, webSocket)) return
                     listener.onError(t.message ?: "Connection failed")
                 }
             },
@@ -87,6 +94,7 @@ class IntercomSignalingClient(
     }
 
     fun disconnect() {
+        connectionId += 1
         socket?.close(1000, "client disconnect")
         socket = null
     }
@@ -152,6 +160,9 @@ class IntercomSignalingClient(
     private fun sendJson(json: JSONObject) {
         socket?.send(json.toString())
     }
+
+    private fun isActive(activeConnectionId: Int, webSocket: WebSocket): Boolean =
+        activeConnectionId == connectionId && socket === webSocket
 
     private fun buildUrl(serverBaseUrl: String, roomCode: String, roomPassword: String, displayName: String): String {
         val base = serverBaseUrl.trim()

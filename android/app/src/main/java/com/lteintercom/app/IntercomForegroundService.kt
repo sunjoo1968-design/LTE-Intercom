@@ -18,12 +18,18 @@ class IntercomForegroundService : Service() {
         val room = intent?.getStringExtra(EXTRA_ROOM).orEmpty().ifBlank { "CONNECTED" }
         ensureChannel()
         val notification = buildNotification(room)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        ) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        val started = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            ) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.isSuccess
+        if (!started) {
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
         return START_STICKY
     }
@@ -39,7 +45,7 @@ class IntercomForegroundService : Service() {
             description = "Keeps LTE Intercom connected while the app is in the background"
             setSound(null, null)
         }
-        manager.createNotificationChannel(channel)
+        runCatching { manager.createNotificationChannel(channel) }
     }
 
     private fun buildNotification(room: String): Notification {

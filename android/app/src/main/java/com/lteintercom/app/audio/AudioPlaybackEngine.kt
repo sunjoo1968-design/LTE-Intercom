@@ -17,7 +17,7 @@ class AudioPlaybackEngine(
     private val sampleRate = 16_000
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val appContext = context.applicationContext
-    private val queue = ArrayBlockingQueue<ByteArray>(24)
+    private val queue = ArrayBlockingQueue<ByteArray>(12)
     private var track: AudioTrack? = null
     private var worker: Thread? = null
     @Volatile private var running = false
@@ -25,9 +25,10 @@ class AudioPlaybackEngine(
 
     fun playPcm16(frame: ByteArray) {
         start()
-        if (!queue.offer(frame.copyOf())) {
+        val queuedFrame = frame.copyOf()
+        if (!queue.offer(queuedFrame)) {
             queue.poll()
-            queue.offer(frame.copyOf())
+            queue.offer(queuedFrame)
         }
     }
 
@@ -53,7 +54,8 @@ class AudioPlaybackEngine(
             while (running) {
                 val frame = runCatching { queue.take() }.getOrNull() ?: continue
                 val audioTrack = ensureTrack() ?: continue
-                val written = audioTrack.write(applyPlaybackGain(frame), 0, frame.size)
+                applyPlaybackGainInPlace(frame)
+                val written = runCatching { audioTrack.write(frame, 0, frame.size) }.getOrDefault(-1)
                 if (written < 0) {
                     onError("Speaker write failed")
                 }
@@ -77,23 +79,28 @@ class AudioPlaybackEngine(
             return null
         }
 
-        val audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(sampleRate)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build(),
-            )
-            .setBufferSizeInBytes(minBuffer * 4)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+        val audioTrack = runCatching {
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                )
+                .setBufferSizeInBytes(minBuffer * 3)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        }.getOrElse {
+            onError("Speaker init failed")
+            return null
+        }
 
         if (audioTrack.state != AudioTrack.STATE_INITIALIZED) {
             audioTrack.release()
@@ -101,18 +108,24 @@ class AudioPlaybackEngine(
             return null
         }
 
-        audioTrack.play()
-        audioTrack.setVolume(1.0f)
+        runCatching { audioTrack.play() }.onFailure {
+            audioTrack.release()
+            onError("Speaker start failed")
+            return null
+        }
+        runCatching { audioTrack.setVolume(1.0f) }
         track = audioTrack
         return audioTrack
     }
 
     private fun configureCommunicationRoute() {
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        if (selectBluetoothRoute()) {
-            audioManager.isSpeakerphoneOn = false
-        } else {
-            audioManager.isSpeakerphoneOn = true
+        runCatching {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (selectBluetoothRoute()) {
+                audioManager.isSpeakerphoneOn = false
+            } else {
+                audioManager.isSpeakerphoneOn = true
+            }
         }
     }
 
@@ -125,7 +138,7 @@ class AudioPlaybackEngine(
                 audioManager.stopBluetoothSco()
             }
         }
-        audioManager.isSpeakerphoneOn = false
+        runCatching { audioManager.isSpeakerphoneOn = false }
     }
 
     private fun selectBluetoothRoute(): Boolean {
@@ -138,20 +151,21 @@ class AudioPlaybackEngine(
                     item.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
                     item.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
             }
-            return device != null && audioManager.setCommunicationDevice(device)
+            return device != null && runCatching { audioManager.setCommunicationDevice(device) }.getOrDefault(false)
         }
 
         return if (audioManager.isBluetoothScoAvailableOffCall) {
-            audioManager.startBluetoothSco()
-            audioManager.isBluetoothScoOn = true
-            true
+            runCatching {
+                audioManager.startBluetoothSco()
+                audioManager.isBluetoothScoOn = true
+                true
+            }.getOrDefault(false)
         } else {
             false
         }
     }
 
-    private fun applyPlaybackGain(input: ByteArray): ByteArray {
-        val output = ByteArray(input.size)
+    private fun applyPlaybackGainInPlace(input: ByteArray) {
         val gain = playbackGain.coerceIn(0.6f, 4.0f)
         var index = 0
         while (index + 1 < input.size) {
@@ -161,10 +175,9 @@ class AudioPlaybackEngine(
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                 .toShort()
                 .toInt()
-            output[index] = (amplified and 0xff).toByte()
-            output[index + 1] = ((amplified shr 8) and 0xff).toByte()
+            input[index] = (amplified and 0xff).toByte()
+            input[index + 1] = ((amplified shr 8) and 0xff).toByte()
             index += 2
         }
-        return output
     }
 }

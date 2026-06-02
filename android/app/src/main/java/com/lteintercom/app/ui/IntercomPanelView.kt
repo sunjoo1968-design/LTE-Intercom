@@ -58,6 +58,8 @@ class IntercomPanelView @JvmOverloads constructor(
     private var compactTalkRect = RectF()
     private val latchedChannelIds = mutableSetOf<String>()
     private val localChannelIds = mutableSetOf<String>()
+    private var attached = false
+    private var frameScheduled = false
 
     private val bg = Color.rgb(10, 13, 16)
     private val panel = Color.rgb(23, 28, 33)
@@ -79,6 +81,18 @@ class IntercomPanelView @JvmOverloads constructor(
         setBackgroundColor(bg)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attached = true
+        scheduleNextFrame()
+    }
+
+    override fun onDetachedFromWindow() {
+        attached = false
+        frameScheduled = false
+        super.onDetachedFromWindow()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         channelHitAreas.clear()
@@ -90,7 +104,7 @@ class IntercomPanelView @JvmOverloads constructor(
 
         if (compactMode) {
             drawCompactPanel(canvas, w, h, pad)
-            postInvalidateDelayed(350L)
+            scheduleNextFrame()
             return
         }
 
@@ -141,7 +155,7 @@ class IntercomPanelView @JvmOverloads constructor(
         }
 
         drawFooter(canvas, RectF(0f, h - footerHeight, w, h))
-        postInvalidateDelayed(350L)
+        scheduleNextFrame()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -528,6 +542,23 @@ class IntercomPanelView @JvmOverloads constructor(
         textPaint.color = color
         textPaint.textAlign = align
         canvas.drawText(value, x, y, textPaint)
+    }
+
+    private fun scheduleNextFrame() {
+        if (!attached || frameScheduled) return
+        frameScheduled = true
+        val active = panelState.channels.any { channel ->
+            channel.talkState !is TalkState.Idle || channel.meter.peak > 0.2f
+        }
+        val delay = when {
+            active -> 350L
+            compactMode -> 1_000L
+            else -> 1_500L
+        }
+        postDelayed({
+            frameScheduled = false
+            if (attached) invalidate()
+        }, delay)
     }
 
     private fun setTalkState(index: Int, state: TalkState) {

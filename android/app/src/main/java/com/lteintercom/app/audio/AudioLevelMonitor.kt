@@ -49,13 +49,18 @@ class AudioLevelMonitor(
 
         val frameSamples = sampleRate / 50
         val bufferSize = max(minBuffer * 2, frameSamples * 2)
-        val audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize,
-        )
+        val audioRecord = runCatching {
+            AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize,
+            )
+        }.getOrElse {
+            onError("Audio input init failed")
+            return
+        }
         if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
             audioRecord.release()
             onError("Audio input init failed")
@@ -66,20 +71,32 @@ class AudioLevelMonitor(
         applyInputEffects(audioRecord.audioSessionId)
         sidetoneTrack = if (sidetoneEnabled) createSidetoneTrack(bufferSize) else null
         running = true
-        audioRecord.startRecording()
-        sidetoneTrack?.play()
+        runCatching { audioRecord.startRecording() }.onFailure {
+            stop()
+            onError("Audio input start failed")
+            return
+        }
+        runCatching { sidetoneTrack?.play() }
 
         worker = Thread({
             val buffer = ShortArray(frameSamples)
             val micBuffer = ShortArray(frameSamples)
             val sidetoneBuffer = ShortArray(frameSamples)
+            var lastLevelAtMs = 0L
             while (running) {
-                val read = audioRecord.read(buffer, 0, buffer.size)
+                val read = runCatching { audioRecord.read(buffer, 0, buffer.size) }.getOrDefault(-1)
                 if (read > 0) {
                     applyMicrophoneGain(buffer, micBuffer, read)
-                    onLevel(calculateLevel(micBuffer, read))
+                    val now = System.currentTimeMillis()
+                    if (now - lastLevelAtMs >= LEVEL_INTERVAL_MS) {
+                        onLevel(calculateLevel(micBuffer, read))
+                        lastLevelAtMs = now
+                    }
                     sidetoneTrack?.let { track -> writeSidetone(track, micBuffer, sidetoneBuffer, read) }
                     onAudioFrame(toPcm16LittleEndian(micBuffer, read))
+                } else if (read < 0) {
+                    onError("Audio input read failed")
+                    running = false
                 }
             }
         }, "LTEIntercomAudioLevel").apply {
@@ -109,29 +126,34 @@ class AudioLevelMonitor(
     }
 
     private fun createSidetoneTrack(bufferSize: Int): AudioTrack? {
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(sampleRate)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build(),
-            )
-            .setBufferSizeInBytes(bufferSize)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+        val track = runCatching {
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        }.getOrElse {
+            onError("Sidetone output init failed")
+            return null
+        }
         if (track.state != AudioTrack.STATE_INITIALIZED) {
             track.release()
             onError("Sidetone output init failed")
             return null
         }
-        track.setVolume(1.0f)
+        runCatching { track.setVolume(1.0f) }
         return track
     }
 
@@ -143,7 +165,7 @@ class AudioLevelMonitor(
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                 .toShort()
         }
-        track.write(output, 0, read)
+        runCatching { track.write(output, 0, read) }
     }
 
     private fun applyMicrophoneGain(input: ShortArray, output: ShortArray, read: Int) {
@@ -204,5 +226,9 @@ class AudioLevelMonitor(
             sum += normalized * normalized
         }
         return sqrt(sum / read).toFloat().coerceIn(0f, 1f)
+    }
+
+    private companion object {
+        const val LEVEL_INTERVAL_MS = 100L
     }
 }

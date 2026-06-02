@@ -40,16 +40,21 @@ class TalkBeepPlayer {
                     .setTransferMode(AudioTrack.MODE_STATIC)
                     .setBufferSizeInBytes(beepBuffer.size * Short.SIZE_BYTES)
                     .build()
+                if (track.state != AudioTrack.STATE_INITIALIZED) {
+                    track.release()
+                    return@runCatching
+                }
                 track.write(beepBuffer, 0, beepBuffer.size)
                 track.setNotificationMarkerPosition(beepBuffer.size)
                 track.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
                     override fun onMarkerReached(audioTrack: AudioTrack) {
-                        audioTrack.release()
+                        runCatching { audioTrack.release() }
                     }
 
                     override fun onPeriodicNotification(audioTrack: AudioTrack) = Unit
                 }, handler)
                 track.play()
+                handler.postDelayed({ runCatching { track.release() } }, BEEP_MS + 250L)
             }
         }
     }

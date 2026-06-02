@@ -68,6 +68,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     private var localParticipantId: String? = null
     private var exitConfirmed = false
     private var localTalkActive = false
+    private var backgroundServiceStarted = false
+    @Volatile private var roomLoadInProgress = false
     private var lastIpSegments = listOf("192", "168", "0", "241")
     private val serverPort = "8443"
     private var lastRoomCode = "LIVE"
@@ -77,6 +79,12 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        runCatching { initializeApp() }.onFailure { error ->
+            setContentView(buildSafeErrorPage(error.message ?: "Startup failed"))
+        }
+    }
+
+    private fun initializeApp() {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         window.setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -89,7 +97,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
         )
         audioLevelMonitor = AudioLevelMonitor(
             onLevel = { level -> runOnUiThread { if (::panelView.isInitialized) panelView.setInputLevel(level) } },
-            onAudioFrame = { frame -> signalingClient.sendAudioFrame(frame) },
+            onAudioFrame = { frame -> if (::signalingClient.isInitialized) signalingClient.sendAudioFrame(frame) },
             onError = { message -> runOnUiThread { updateStatus("MIC: $message") } },
         )
         audioLevelMonitor.sidetoneEnabled = sidetoneEnabled
@@ -111,7 +119,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
         if (exitConfirmed || !connected) {
             shutdownIntercom()
         }
-        runCatching { talkBeepPlayer.release() }
+        if (::talkBeepPlayer.isInitialized) runCatching { talkBeepPlayer.release() }
         super.onDestroy()
     }
 
@@ -426,6 +434,43 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
         return root
     }
 
+    private fun buildSafeErrorPage(message: String): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(34, 34, 34, 34)
+            setBackgroundColor(Color.rgb(10, 13, 16))
+            addView(TextView(this@MainActivity).apply {
+                text = "LTE INTERCOM"
+                textSize = 28f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Startup recovery mode"
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(246, 184, 48))
+                setPadding(0, 12, 0, 8)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = message
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(150, 161, 171))
+            })
+            addView(Button(this@MainActivity).apply {
+                text = "RETRY"
+                setOnClickListener {
+                    runCatching { initializeApp() }.onFailure { error ->
+                        setContentView(buildSafeErrorPage(error.message ?: "Startup failed"))
+                    }
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 24, 0, 0)
+            })
+        }
+
     private fun buildPanelPage(): LinearLayout {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -518,6 +563,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     }
 
     private fun loadRoomsFromServer() {
+        if (roomLoadInProgress) return
+        roomLoadInProgress = true
         val ip = serverIpFromInputs()
         val port = serverPort
         if (::setupHintView.isInitialized) setupHintView.text = "Loading rooms from $ip:$port..."
@@ -545,6 +592,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
                     }
                 }
                 runOnUiThread {
+                    roomLoadInProgress = false
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     availableRooms.clear()
                     availableRooms.addAll(loaded)
                     if (loaded.isEmpty()) {
@@ -561,6 +610,8 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
                 }
             } catch (error: Exception) {
                 runOnUiThread {
+                    roomLoadInProgress = false
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     setupHintView.text = "Room load failed: ${error.message ?: "server not reachable"}"
                 }
             }
@@ -770,6 +821,7 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     }
 
     private fun startBackgroundService() {
+        if (backgroundServiceStarted) return
         val intent = Intent(this, IntercomForegroundService::class.java)
             .putExtra(IntercomForegroundService.EXTRA_ROOM, lastRoomCode)
         runCatching {
@@ -778,21 +830,23 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
             } else {
                 startService(intent)
             }
+            backgroundServiceStarted = true
         }.onFailure {
             updateStatus("BACKGROUND SERVICE LIMITED")
         }
     }
 
     private fun stopBackgroundService() {
-        stopService(Intent(this, IntercomForegroundService::class.java))
+        runCatching { stopService(Intent(this, IntercomForegroundService::class.java)) }
+        backgroundServiceStarted = false
     }
 
     private fun showExitDialog() {
         AlertDialog.Builder(this)
-            .setTitle("LTE Intercom 종료")
-            .setMessage("현재 인터컴 연결을 종료하고 앱을 닫을까요?")
-            .setNegativeButton("취소", null)
-            .setPositiveButton("종료") { _, _ ->
+            .setTitle("Exit LTE Intercom")
+            .setMessage("Disconnect from the current intercom room and close the app?")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Exit") { _, _ ->
                 exitConfirmed = true
                 saveSession(active = false)
                 shutdownIntercom()
@@ -802,9 +856,9 @@ class MainActivity : Activity(), IntercomSignalingClient.Listener {
     }
 
     private fun shutdownIntercom() {
-        audioLevelMonitor.stop()
-        audioPlaybackEngine.stop()
-        signalingClient.disconnect()
+        if (::audioLevelMonitor.isInitialized) audioLevelMonitor.stop()
+        if (::audioPlaybackEngine.isInitialized) audioPlaybackEngine.stop()
+        if (::signalingClient.isInitialized) signalingClient.disconnect()
         stopBackgroundService()
         connected = false
         localParticipantId = null
